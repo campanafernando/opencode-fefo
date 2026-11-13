@@ -1,5 +1,5 @@
 import { Plugin } from "@opencode/plugin"
-import { addArgs, findFefo, formatResult, runFefo, splitCommand } from "./fefo.js"
+import { addArgs, classify, findFefo, formatResult, runFefo, splitCommand, type FefoAddInput } from "./fefo.js"
 
 const MISSING =
   "FEFO CLI not found. Clone https://github.com/campanafernando/FEFO, run `./bin/fefo init`, " +
@@ -8,6 +8,14 @@ const MISSING =
 const emptyInput = {
   type: "object",
   properties: {},
+  additionalProperties: false,
+} as const
+
+const checkInput = {
+  type: "object",
+  properties: {
+    check: { type: "boolean", description: "Only report what is out of date; write nothing." },
+  },
   additionalProperties: false,
 } as const
 
@@ -22,14 +30,35 @@ export default Plugin.define({
       return formatResult(await runFefo(cli, args, directory, signal))
     }
 
+    // Agent-initiated calls: reads run freely, writes ask first, the rest stays in the terminal.
+    async function guarded(args: string[], context: ToolCall) {
+      const access = classify(args)
+      if (access === "terminal") {
+        return `\`fefo ${args.join(" ")}\` is not available to the agent. Run it yourself in a terminal: ./bin/fefo ${args.join(" ")}`
+      }
+      if (access === "write") {
+        await ctx.permission.assert({
+          sessionID: context.sessionID,
+          agent: context.agent,
+          source: { type: "tool", messageID: context.messageID, id: context.id },
+          action: "fefo",
+          resources: [args.join(" ")],
+          save: [`${args[0]}*`],
+        })
+      }
+      return execute(args, context.signal)
+    }
+
     await ctx.command.transform((editor) => {
       editor.add({
         name: "fefo",
-        description: "Run a FEFO workspace command (add, sync, index, status, doctor, mcp)",
+        description: "Run a FEFO workspace command (add, sync, index, status, doctor, adapters, mcp)",
+        // A person typed this, so every subcommand is allowed. The output is posted as a
+        // synthetic message: it is context for the session, not a new user prompt.
         execute: async ({ sessionID, prompt }) => {
           const args = splitCommand(prompt.text)
           const output = await execute(args.length ? args : ["status"])
-          await ctx.session.prompt({ sessionID, text: output })
+          await ctx.session.synthetic({ sessionID, text: output })
         },
       })
     })
@@ -44,26 +73,31 @@ export default Plugin.define({
         name: "status",
         description: "Show federated repositories, roles, stacks, and CodeGraph index status.",
         input: emptyInput,
-        execute: async (_input, context) => ({ content: await execute(["status"], context.signal) }),
+        execute: async (_input, context) => ({ content: await guarded(["status"], context) }),
       })
 
       editor.add({
         name: "sync",
-        description: "Regenerate OpenCode config, MCP config, vault summaries, and Claude/Cursor/Copilot adapters.",
-        input: emptyInput,
-        execute: async (_input, context) => ({ content: await execute(["sync"], context.signal) }),
+        description:
+          "Regenerate OpenCode config, MCP config, vault summaries, and Claude/Cursor/Copilot adapters. " +
+          "Pass check=true to only report drift without writing (no approval needed).",
+        input: checkInput,
+        execute: async (input, context) => {
+          const check = (input as { check?: boolean }).check === true
+          return { content: await guarded(check ? ["sync", "--check"] : ["sync"], context) }
+        },
       })
 
       editor.add({
         name: "doctor",
-        description: "Validate the FEFO manifest, generated files, repositories, and CodeGraph indexes.",
+        description: "Validate the FEFO manifest, generated files, agents, repositories, and CodeGraph indexes.",
         input: emptyInput,
-        execute: async (_input, context) => ({ content: await execute(["doctor"], context.signal) }),
+        execute: async (_input, context) => ({ content: await guarded(["doctor"], context) }),
       })
 
       editor.add({
         name: "index",
-        description: "Refresh CodeGraph indexes for all or selected federated repositories.",
+        description: "Refresh CodeGraph indexes for all or selected federated repositories. Asks for approval.",
         input: {
           type: "object",
           properties: {
@@ -77,20 +111,20 @@ export default Plugin.define({
         },
         execute: async (input, context) => {
           const names = (input as { names?: string[] }).names ?? []
-          return { content: await execute(["index", ...names], context.signal) }
+          return { content: await guarded(["index", ...names], context) }
         },
       })
 
       editor.add({
         name: "add",
-        description: "Add or update a repository in the FEFO federation.",
+        description: "Add or update a repository in the FEFO federation. Asks for approval.",
         input: {
           type: "object",
           properties: {
             path: { type: "string", description: "Path to the repository." },
             role: { type: "string", description: "Repository role, such as api, web, data, or infra." },
             name: { type: "string", description: "Short repository name." },
-            stack: { type: "string", description: "Stack override, such as django, next, or flutter." },
+            stack: { type: "string", description: "Stack override, such as django, next, nest, or flutter." },
             test: { type: "string", description: "Test command override." },
             lint: { type: "string", description: "Lint command override." },
             build: { type: "string", description: "Build command override." },
@@ -98,15 +132,15 @@ export default Plugin.define({
           required: ["path"],
           additionalProperties: false,
         },
-        execute: async (input, context) => {
-          const args = addArgs(input as { path: string; role?: string; name?: string; stack?: string; test?: string; lint?: string; build?: string })
-          return { content: await execute(args, context.signal) }
-        },
+        execute: async (input, context) => ({ content: await guarded(addArgs(input as FefoAddInput), context) }),
       })
 
       editor.add({
         name: "run",
-        description: "Run an arbitrary FEFO CLI command. The allowed subcommands are init, add, remove, sync, index, status, doctor, and mcp.",
+        description:
+          "Run a FEFO CLI command. Read-only subcommands (status, doctor, sync --check, adapters --check, mcp list) " +
+          "run directly; sync, adapters, index, add, remove and mcp remove ask for approval; init and mcp add are " +
+          "refused and must be run in a terminal.",
         input: {
           type: "object",
           properties: {
@@ -120,12 +154,20 @@ export default Plugin.define({
           additionalProperties: false,
         },
         execute: async (input, context) => {
-          const raw = (input as { args: string[] }).args
-          const args = [...raw]
+          const args = [...(input as { args: string[] }).args]
           while (args[0] === "--" || args[0] === "fefo") args.shift()
-          return { content: await execute(args, context.signal) }
+          return { content: await guarded(args, context) }
         },
       })
     })
   },
 })
+
+// Branded IDs from the SDK are plain strings at runtime and assignable to string.
+type ToolCall = {
+  signal: AbortSignal
+  sessionID: string
+  agent: string
+  messageID: string
+  id: string
+}

@@ -6,7 +6,7 @@ It adds a `/fefo` command and a set of tools that operate on the FEFO workspace
 from inside OpenCode:
 
 - `fefo_status`
-- `fefo_sync`
+- `fefo_sync` (`check: true` only reports drift)
 - `fefo_doctor`
 - `fefo_index`
 - `fefo_add`
@@ -15,9 +15,31 @@ from inside OpenCode:
 The plugin is a thin bridge. It calls the `fefo` CLI that lives in the workspace
 (`bin/fefo`), on `PATH`, or at `FEFO_CLI`.
 
+## Permissions
+
+Tool calls made by the agent are classified by subcommand:
+
+| Access | Subcommands | Behavior |
+|---|---|---|
+| read | `status`, `doctor`, `sync --check`, `adapters --check`, `mcp list` | runs directly |
+| write | `sync`, `adapters`, `index`, `add`, `remove`, `mcp remove` | asks first (`action: fefo`) |
+| terminal | `init`, `mcp add`, anything unknown | refused; run it yourself |
+
+`mcp add --local` registers a command that OpenCode then starts, so it is never
+reachable through a tool. A FEFO-generated workspace adds the rule
+`{ "action": "fefo", "resource": "*", "effect": "ask" }`; add your own rules to
+allow specific commands (for example `fefo` / `sync*`).
+
+`/fefo ...` is typed by a person, so every subcommand works there. Its output is
+posted as a synthetic message (context for the session), not as a new user
+prompt, so it does not start a model turn by itself.
+
+A call that runs longer than 2 minutes (15 for `index` and `add`) is stopped with
+its child processes; set `FEFO_TIMEOUT_MS` to change the limit.
+
 ## Install
 
-OpenCode 2.2.7+ is required.
+OpenCode 2.3.0+ is required.
 
 > npm publication is pending. Until then, load the plugin from a local checkout.
 
@@ -26,6 +48,9 @@ OpenCode 2.2.7+ is required.
   "plugins": ["/absolute/path/to/opencode-fefo"]
 }
 ```
+
+In a FEFO workspace, declare it in `.fefo/workspace.json` (`"plugins": ["..."]`) and run
+`./bin/fefo sync`; the manifest value is merged into `opencode.json` and survives later syncs.
 
 After publication:
 

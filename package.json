@@ -1,6 +1,6 @@
 {
   "name": "opencode-fefo",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "OpenCode plugin for FEFO federated workspaces",
   "type": "module",
   "exports": {
@@ -15,10 +15,11 @@
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },
-  "dependencies": {
-    "@opencode/plugin": "^2.2.7"
+  "peerDependencies": {
+    "@opencode/plugin": "^2.3.0"
   },
   "devDependencies": {
+    "@opencode/plugin": "^2.3.0",
     "@types/bun": "^1.4.4",
     "@types/node": "^22.10.0",
     "typescript": "^5.7.0"
