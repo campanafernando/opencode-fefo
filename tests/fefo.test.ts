@@ -114,20 +114,21 @@ describe("plugin wiring", () => {
   function harness(directory: string) {
     const commands: Record<string, (input: any) => Promise<void>> = {}
     const tools: Record<string, (input: any, context: any) => Promise<{ content: string }>> = {}
+    const toolOptions: Record<string, any> = {}
     const asserted: any[] = []
     const synthetic: any[] = []
     const prompts: any[] = []
     const ctx: any = {
       location: { directory },
       command: { transform: async (cb: any) => cb({ add: (c: any) => (commands[c.name] = c.execute) }) },
-      tool: { transform: async (cb: any) => cb({ namespace() {}, add: (t: any) => (tools[t.name] = t.execute) }) },
+      tool: { transform: async (cb: any) => cb({ namespace() {}, add: (t: any) => ((tools[t.name] = t.execute), (toolOptions[t.name] = t.options)) }) },
       permission: { assert: async (input: any) => void asserted.push(input) },
       session: {
         synthetic: async (input: any) => void synthetic.push(input),
         prompt: async (input: any) => void prompts.push(input),
       },
     }
-    return { ctx, commands, tools, asserted, synthetic, prompts }
+    return { ctx, commands, tools, toolOptions, asserted, synthetic, prompts }
   }
 
   let dir: string
@@ -148,6 +149,12 @@ describe("plugin wiring", () => {
     await plugin.setup(h.ctx)
     expect(Object.keys(h.commands)).toEqual(["fefo"])
     expect(Object.keys(h.tools).sort()).toEqual(["add", "doctor", "index", "run", "status", "sync"])
+  })
+
+  test("every tool is namespaced so it cannot collide (fefo_status, not status)", async () => {
+    const h = harness(dir)
+    await plugin.setup(h.ctx)
+    for (const name of Object.keys(h.tools)) expect(h.toolOptions[name]).toMatchObject({ namespace: "fefo" })
   })
 
   test("/fefo posts the CLI output as a synthetic message, never as a user prompt", async () => {

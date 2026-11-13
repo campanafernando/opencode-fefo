@@ -85,7 +85,7 @@ Inside OpenCode:
 /fefo doctor
 ```
 
-Or ask the agent to use the `fefo_*` tools directly.
+Or ask the agent to use the `fefo_*` tools directly (in Code Mode they are `tools.fefo.status()`, `tools.fefo.sync()`, ...).
 
 `/fefo` is intentionally a thin wrapper: it runs the CLI and returns the output
 to the session. It does not duplicate the FEFO generator.
@@ -94,6 +94,17 @@ to the session. It does not duplicate the FEFO generator.
 
 [`opencode-zshell`](https://github.com/campanafernando/opencode-zshell) calls the
 same plugin/CLI so the commands work from a terminal and from OpenCode.
+
+## Verified against OpenCode 2.3.0
+
+Besides the unit tests, the plugin was exercised live (`opencode run` and the HTTP API) in a
+FEFO workspace that loads it through the manifest:
+
+- read-only tools run, namespaced as `tools.fefo.*`;
+- `fefo_sync` in a non-interactive run is rejected with `permission requested: fefo (sync); auto-rejecting`;
+  with `--auto` it runs, because `--auto` approves everything that is not denied;
+- `fefo_run` with `init` or `mcp add` returns the "not available to the agent" message and changes nothing;
+- `/fefo status` (HTTP `session.command`) posts a `synthetic` message and does not start a model turn.
 
 ## Development
 

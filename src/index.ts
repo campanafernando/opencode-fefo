@@ -5,6 +5,9 @@ const MISSING =
   "FEFO CLI not found. Clone https://github.com/campanafernando/FEFO, run `./bin/fefo init`, " +
   "or point FEFO_CLI to the executable."
 
+// Namespaced so the tools are fefo_status, fefo_sync, ... and cannot collide with other plugins.
+const TOOL_OPTIONS = { namespace: "fefo" } as const
+
 const emptyInput = {
   type: "object",
   properties: {},
@@ -71,6 +74,7 @@ export default Plugin.define({
 
       editor.add({
         name: "status",
+        options: TOOL_OPTIONS,
         description: "Show federated repositories, roles, stacks, and CodeGraph index status.",
         input: emptyInput,
         execute: async (_input, context) => ({ content: await guarded(["status"], context) }),
@@ -78,6 +82,7 @@ export default Plugin.define({
 
       editor.add({
         name: "sync",
+        options: TOOL_OPTIONS,
         description:
           "Regenerate OpenCode config, MCP config, vault summaries, and Claude/Cursor/Copilot adapters. " +
           "Pass check=true to only report drift without writing (no approval needed).",
@@ -90,6 +95,7 @@ export default Plugin.define({
 
       editor.add({
         name: "doctor",
+        options: TOOL_OPTIONS,
         description: "Validate the FEFO manifest, generated files, agents, repositories, and CodeGraph indexes.",
         input: emptyInput,
         execute: async (_input, context) => ({ content: await guarded(["doctor"], context) }),
@@ -97,6 +103,7 @@ export default Plugin.define({
 
       editor.add({
         name: "index",
+        options: TOOL_OPTIONS,
         description: "Refresh CodeGraph indexes for all or selected federated repositories. Asks for approval.",
         input: {
           type: "object",
@@ -117,6 +124,7 @@ export default Plugin.define({
 
       editor.add({
         name: "add",
+        options: TOOL_OPTIONS,
         description: "Add or update a repository in the FEFO federation. Asks for approval.",
         input: {
           type: "object",
@@ -137,6 +145,7 @@ export default Plugin.define({
 
       editor.add({
         name: "run",
+        options: TOOL_OPTIONS,
         description:
           "Run a FEFO CLI command. Read-only subcommands (status, doctor, sync --check, adapters --check, mcp list) " +
           "run directly; sync, adapters, index, add, remove and mcp remove ask for approval; init and mcp add are " +
